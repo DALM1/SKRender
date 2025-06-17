@@ -5,6 +5,9 @@
 //  Created by Dimitri ALMON on 16/06/2025.
 //
 
+#ifndef SKMath_h
+#define SKMath_h
+
 #import <Foundation/Foundation.h>
 #import <simd/simd.h>
 
@@ -72,3 +75,5 @@ static inline matrix_float4x4 matrix4x4_translation(vector_float3 translation) {
         {translation.x, translation.y, translation.z, 1}
     }};
 }
+
+#endif

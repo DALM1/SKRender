@@ -7,6 +7,7 @@
 
 #import "SKRenderer.h"
 #import "../Assets/SKModelLoader.h"
+#import "../Controls/SKStormController.h"
 #import <simd/simd.h>
 
 typedef struct {
@@ -14,9 +15,18 @@ typedef struct {
     matrix_float4x4 normalMatrix;
     float time;
     float lightningIntensity;
-    float stormPhase;
-    float flashTiming;
-} StormUniforms;
+    float lightningFrequency;
+    float rainIntensity;
+    float windSpeed;
+    float stormIntensity;
+    vector_float3 lightningColor;
+    vector_float3 skyTint;
+    float flashDuration;
+    float branchFactor;
+    float electricGlow;
+    float manualLightningTrigger;
+    float padding[2];
+} ControlledStormUniforms;
 
 typedef struct {
     vector_float2 position;
@@ -46,12 +56,14 @@ typedef struct {
 @property (nonatomic, assign) CGSize viewportSize;
 @property (nonatomic, assign) int lightningVertexCount;
 @property (nonatomic, assign) int rainParticleCount;
+@property (nonatomic, assign) StormParameters currentStormParams;
+@property (nonatomic, assign) float manualLightningTimer;
+@property (nonatomic, assign) BOOL manualLightningActive;
 @end
 
 @implementation SKRenderer
 
 - (instancetype)initWithView:(MTKView *)view {
-    NSLog(@"=== Lightning Storm Init ===");
     if (self = [super init]) {
         self.device = view.device;
         self.commandQueue = [self.device newCommandQueue];
@@ -67,25 +79,50 @@ typedef struct {
         [self setupMatrices];
         [self generateLightningGeometry];
         [self generateRainParticles];
+        [self initializeStormParameters];
         
         self.startTime = CACurrentMediaTime();
-        NSLog(@"⚡ Lightning storm renderer ready");
+        self.manualLightningTimer = 0.0f;
+        self.manualLightningActive = NO;
     }
     return self;
+}
+
+- (void)initializeStormParameters {
+    _currentStormParams = (StormParameters){
+        .lightningIntensity = 0.8f,
+        .lightningFrequency = 0.6f,
+        .rainIntensity = 0.7f,
+        .windSpeed = 0.5f,
+        .stormIntensity = 0.8f,
+        .lightningColor = {0.9f, 0.95f, 1.0f},
+        .skyTint = {0.05f, 0.08f, 0.2f},
+        .flashDuration = 0.15f,
+        .branchFactor = 0.4f,
+        .electricGlow = 0.9f
+    };
+}
+
+- (void)updateStormParameters:(void *)parameters {
+    if (parameters) {
+        memcpy(&_currentStormParams, parameters, sizeof(StormParameters));
+    }
+}
+
+- (void)triggerManualLightning {
+    self.manualLightningActive = YES;
+    self.manualLightningTimer = CACurrentMediaTime();
 }
 
 - (void)setupStormPipelines {
     id<MTLLibrary> library = [self.device newDefaultLibrary];
     if (!library) {
-        NSLog(@"❌ Failed to create library");
         return;
     }
     
     [self setupStormBackgroundPipeline:library];
     [self setupLightningPipeline:library];
     [self setupRainPipeline:library];
-    
-    NSLog(@"⚡ Storm pipelines configured");
 }
 
 - (void)setupStormBackgroundPipeline:(id<MTLLibrary>)library {
@@ -93,7 +130,6 @@ typedef struct {
     id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_storm_background"];
     
     if (!vertexFunction || !fragmentFunction) {
-        NSLog(@"⚠️ Storm background shaders not found, using fallback");
         fragmentFunction = [library newFunctionWithName:@"fragment_background"];
     }
     
@@ -116,9 +152,6 @@ typedef struct {
     
     NSError *error;
     self.stormBackgroundPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (error) {
-        NSLog(@"❌ Storm background pipeline error: %@", error);
-    }
 }
 
 - (void)setupLightningPipeline:(id<MTLLibrary>)library {
@@ -126,7 +159,6 @@ typedef struct {
     id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_lightning"];
     
     if (!vertexFunction || !fragmentFunction) {
-        NSLog(@"⚠️ Lightning shaders not found, using fallback");
         vertexFunction = [library newFunctionWithName:@"vertex_main"];
         fragmentFunction = [library newFunctionWithName:@"fragment_main"];
     }
@@ -162,9 +194,6 @@ typedef struct {
     
     NSError *error;
     self.lightningPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (error) {
-        NSLog(@"❌ Lightning pipeline error: %@", error);
-    }
 }
 
 - (void)setupRainPipeline:(id<MTLLibrary>)library {
@@ -202,9 +231,6 @@ typedef struct {
     
     NSError *error;
     self.rainPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (error) {
-        NSLog(@"❌ Rain pipeline error: %@", error);
-    }
 }
 
 - (void)setupDepthStencil {
@@ -220,7 +246,7 @@ typedef struct {
 }
 
 - (void)setupStormBuffers {
-    self.stormUniformBuffer = [self.device newBufferWithLength:sizeof(StormUniforms) options:MTLResourceStorageModeShared];
+    self.stormUniformBuffer = [self.device newBufferWithLength:sizeof(ControlledStormUniforms) options:MTLResourceStorageModeShared];
     
     QuadVertex quadVertices[] = {
         {{-1.0f, -1.0f}, {0.0f, 1.0f}},
@@ -268,50 +294,50 @@ typedef struct {
 }
 
 - (void)generateLightningGeometry {
-    int maxLightningVertices = 500;
+    int maxLightningVertices = 1000;
     LightningVertex *lightningVertices = malloc(maxLightningVertices * sizeof(LightningVertex));
     
     int vertexIndex = 0;
     
-    for (int bolt = 0; bolt < 3; bolt++) {
-        float startX = (bolt - 1) * 8.0f;
+    for (int bolt = 0; bolt < 5; bolt++) {
+        float startX = (bolt - 2) * 6.0f;
         float startY = 15.0f;
         float currentX = startX;
         float currentY = startY;
-        float timeOffset = bolt * 0.3f;
+        float timeOffset = bolt * 0.2f;
         
-        for (int segment = 0; segment < 80 && vertexIndex < maxLightningVertices - 1; segment++) {
-            float progress = (float)segment / 80.0f;
-            float branchChance = 0.1f + progress * 0.2f;
+        for (int segment = 0; segment < 100 && vertexIndex < maxLightningVertices - 1; segment++) {
+            float progress = (float)segment / 100.0f;
+            float branchChance = 0.08f + progress * 0.15f;
             
-            float deltaX = (drand48() - 0.5f) * 2.0f;
-            float deltaY = -0.4f - drand48() * 0.3f;
+            float deltaX = (drand48() - 0.5f) * 1.5f;
+            float deltaY = -0.3f - drand48() * 0.25f;
             
             currentX += deltaX;
             currentY += deltaY;
             
             lightningVertices[vertexIndex] = (LightningVertex){
                 {currentX, currentY, 0},
-                1.0f - progress * 0.3f,
+                1.0f - progress * 0.2f,
                 branchChance,
                 timeOffset
             };
             vertexIndex++;
             
-            if (drand48() < branchChance && vertexIndex < maxLightningVertices - 10) {
+            if (drand48() < branchChance && vertexIndex < maxLightningVertices - 15) {
                 float branchX = currentX;
                 float branchY = currentY;
-                int branchLength = 3 + drand48() * 8;
+                int branchLength = 5 + drand48() * 12;
                 
                 for (int b = 0; b < branchLength && vertexIndex < maxLightningVertices - 1; b++) {
-                    branchX += (drand48() - 0.5f) * 1.5f;
-                    branchY -= 0.2f + drand48() * 0.2f;
+                    branchX += (drand48() - 0.5f) * 1.2f;
+                    branchY -= 0.15f + drand48() * 0.15f;
                     
                     lightningVertices[vertexIndex] = (LightningVertex){
                         {branchX, branchY, 0},
-                        (1.0f - progress * 0.3f) * 0.6f,
+                        (1.0f - progress * 0.2f) * 0.7f,
                         0.0f,
-                        timeOffset + b * 0.1f
+                        timeOffset + b * 0.05f
                     };
                     vertexIndex++;
                 }
@@ -325,7 +351,6 @@ typedef struct {
                                                   options:MTLResourceStorageModeShared];
     
     free(lightningVertices);
-    NSLog(@"⚡ Generated %d lightning vertices", self.lightningVertexCount);
 }
 
 - (void)generateRainParticles {
@@ -335,13 +360,13 @@ typedef struct {
         vector_float2 texCoord;
     } RainVertex;
     
-    int particleCount = 800;
+    int particleCount = 1200;
     RainVertex *rainVertices = malloc(particleCount * sizeof(RainVertex));
     
     for (int i = 0; i < particleCount; i++) {
-        float x = (drand48() - 0.5f) * 50.0f;
-        float y = 20.0f + drand48() * 10.0f;
-        float z = (drand48() - 0.5f) * 50.0f;
+        float x = (drand48() - 0.5f) * 60.0f;
+        float y = 25.0f + drand48() * 15.0f;
+        float z = (drand48() - 0.5f) * 60.0f;
         
         rainVertices[i] = (RainVertex){
             {x, y, z},
@@ -356,7 +381,6 @@ typedef struct {
                                                       options:MTLResourceStorageModeShared];
     
     free(rainVertices);
-    NSLog(@"🌧️ Generated %d rain particles", self.rainParticleCount);
 }
 
 - (void)drawInMTKView:(MTKView *)view {
@@ -367,7 +391,12 @@ typedef struct {
         MTLRenderPassDescriptor *renderPassDescriptor = view.currentRenderPassDescriptor;
         if (!renderPassDescriptor) return;
         
-        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0.02, 0.02, 0.05, 1.0);
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(
+            self.currentStormParams.skyTint.x * 0.5f,
+            self.currentStormParams.skyTint.y * 0.5f,
+            self.currentStormParams.skyTint.z * 0.5f,
+            1.0
+        );
         renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
         
         id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
@@ -400,18 +429,20 @@ typedef struct {
 }
 
 - (void)renderRainParticles:(id<MTLRenderCommandEncoder>)encoder {
-    if (!self.rainPipeline || !self.rainParticleBuffer) return;
+    if (!self.rainPipeline || !self.rainParticleBuffer || self.currentStormParams.rainIntensity < 0.01f) return;
     
     [encoder setRenderPipelineState:self.rainPipeline];
     [encoder setDepthStencilState:self.depthStencilState];
     [encoder setVertexBuffer:self.stormUniformBuffer offset:0 atIndex:1];
     [encoder setFragmentBuffer:self.stormUniformBuffer offset:0 atIndex:1];
     [encoder setVertexBuffer:self.rainParticleBuffer offset:0 atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:self.rainParticleCount];
+    
+    int activeParticles = (int)(self.rainParticleCount * self.currentStormParams.rainIntensity);
+    [encoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:activeParticles];
 }
 
 - (void)renderLightning:(id<MTLRenderCommandEncoder>)encoder {
-    if (!self.lightningPipeline || !self.lightningBuffer) return;
+    if (!self.lightningPipeline || !self.lightningBuffer || self.currentStormParams.lightningIntensity < 0.01f) return;
     
     [encoder setRenderPipelineState:self.lightningPipeline];
     [encoder setDepthStencilState:self.noDepthStencilState];
@@ -425,27 +456,43 @@ typedef struct {
     CFTimeInterval currentTime = CACurrentMediaTime();
     float time = (float)(currentTime - self.startTime);
     
-    float flashCycle = fmodf(time * 0.8f, 4.0f);
-    float lightningIntensity = 0.0f;
+    float flashCycle = fmodf(time * self.currentStormParams.lightningFrequency, 4.0f);
+    float automaticLightning = 0.0f;
     
-    if (flashCycle < 0.1f) {
-        lightningIntensity = 1.0f;
-    } else if (flashCycle < 0.15f) {
-        lightningIntensity = 0.3f;
-    } else if (flashCycle < 0.2f) {
-        lightningIntensity = 0.8f;
-    } else if (flashCycle > 2.0f && flashCycle < 2.05f) {
-        lightningIntensity = 0.6f;
+    if (flashCycle < self.currentStormParams.flashDuration) {
+        automaticLightning = self.currentStormParams.lightningIntensity;
+    } else if (flashCycle < self.currentStormParams.flashDuration * 1.5f) {
+        automaticLightning = self.currentStormParams.lightningIntensity * 0.3f;
+    } else if (flashCycle < self.currentStormParams.flashDuration * 2.0f) {
+        automaticLightning = self.currentStormParams.lightningIntensity * 0.8f;
     }
     
-    float stormPhase = sin(time * 0.2f) * 0.5f + 0.5f;
-    float flashTiming = sin(time * 3.0f);
+    float manualLightning = 0.0f;
+    if (self.manualLightningActive) {
+        float timeSinceManual = currentTime - self.manualLightningTimer;
+        if (timeSinceManual < self.currentStormParams.flashDuration * 3.0f) {
+            float manualProgress = timeSinceManual / (self.currentStormParams.flashDuration * 3.0f);
+            manualLightning = self.currentStormParams.lightningIntensity * (1.0f - manualProgress);
+        } else {
+            self.manualLightningActive = NO;
+        }
+    }
     
-    StormUniforms *uniformsPtr = (StormUniforms *)self.stormUniformBuffer.contents;
+    float totalLightning = fmaxf(automaticLightning, manualLightning);
+    
+    ControlledStormUniforms *uniformsPtr = (ControlledStormUniforms *)self.stormUniformBuffer.contents;
     uniformsPtr->time = time;
-    uniformsPtr->lightningIntensity = lightningIntensity;
-    uniformsPtr->stormPhase = stormPhase;
-    uniformsPtr->flashTiming = flashTiming;
+    uniformsPtr->lightningIntensity = totalLightning;
+    uniformsPtr->lightningFrequency = self.currentStormParams.lightningFrequency;
+    uniformsPtr->rainIntensity = self.currentStormParams.rainIntensity;
+    uniformsPtr->windSpeed = self.currentStormParams.windSpeed;
+    uniformsPtr->stormIntensity = self.currentStormParams.stormIntensity;
+    uniformsPtr->lightningColor = self.currentStormParams.lightningColor;
+    uniformsPtr->skyTint = self.currentStormParams.skyTint;
+    uniformsPtr->flashDuration = self.currentStormParams.flashDuration;
+    uniformsPtr->branchFactor = self.currentStormParams.branchFactor;
+    uniformsPtr->electricGlow = self.currentStormParams.electricGlow;
+    uniformsPtr->manualLightningTrigger = manualLightning;
     
     matrix_float4x4 modelViewProjectionMatrix = matrix_multiply(self.projectionMatrix, self.viewMatrix);
     uniformsPtr->modelViewProjectionMatrix = modelViewProjectionMatrix;

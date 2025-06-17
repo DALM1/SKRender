@@ -21,7 +21,7 @@
     
     [self setupLightningStormEffects];
     
-    NSLog(@"⚡ Lightning Storm application launched");
+    NSLog(@"Lightning Storm application launched");
 }
 
 - (void)setupLightningStormEffects {
@@ -62,7 +62,7 @@
     
     [self animateLightningStorm:window];
     
-    NSLog(@"⚡ Lightning storm applied to window: %@", window.title);
+    NSLog(@"Lightning storm applied to window: %@", window.title);
 }
 
 - (void)animateLightningStorm:(NSWindow *)window {
@@ -124,7 +124,7 @@
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification {
     [self save];
-    NSLog(@"⚡ Lightning Storm application terminating");
+    NSLog(@"Lightning Storm application terminating");
 }
 
 - (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app {
@@ -137,8 +137,6 @@
 - (BOOL)application:(NSApplication *)application restoreWindowWithIdentifier:(NSString *)identifier state:(NSCoder *)state {
     return NO;
 }
-
-#pragma mark - Core Data stack
 
 @synthesize persistentContainer = _persistentContainer;
 
@@ -155,8 +153,6 @@
     }
     return _persistentContainer;
 }
-
-#pragma mark - Core Data Saving and Undo support
 
 - (void)save {
     NSManagedObjectContext *context = self.persistentContainer.viewContext;

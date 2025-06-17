@@ -5,6 +5,9 @@
 //  Created by Dimitri ALMON on 16/06/2025.
 //
 
+#ifndef SKRenderer_h
+#define SKRenderer_h
+
 #import <Foundation/Foundation.h>
 #import <MetalKit/MetalKit.h>
 
@@ -14,5 +17,9 @@
 @property (nonatomic, strong) id<MTLCommandQueue> commandQueue;
 
 - (instancetype)initWithView:(MTKView *)view;
+- (void)updateStormParameters:(void *)parameters;
+- (void)triggerManualLightning;
 
 @end
+
+#endif

@@ -5,6 +5,9 @@
 //  Created by Dimitri ALMON on 16/06/2025.
 //
 
+#ifndef SKModelLoader_h
+#define SKModelLoader_h
+
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
@@ -25,3 +28,5 @@
 + (SKMesh *)createSimpleTriangleWithDevice:(id<MTLDevice>)device;
 
 @end
+
+#endif

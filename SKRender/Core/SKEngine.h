@@ -5,6 +5,9 @@
 //  Created by Dimitri ALMON on 16/06/2025.
 //
 
+#ifndef SKEngine_h
+#define SKEngine_h
+
 #import <Foundation/Foundation.h>
 #import <MetalKit/MetalKit.h>
 #import <CoreData/CoreData.h>
@@ -24,3 +27,5 @@
 - (void)update:(CFTimeInterval)deltaTime;
 
 @end
+
+#endif
