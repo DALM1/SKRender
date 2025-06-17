@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://github.com/user-attachments/assets/815bd523-668d-4025-abb1-f5903e4fa1b4" alt="SKRender" width="800">
+  <img src="https://github.com/DALM1/SKRender/blob/main/SKRender-demo.png?raw=true" alt="SKRender" width="800">
   <br>
   SKRender
   <br>
