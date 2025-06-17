@@ -19,14 +19,14 @@
     [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"ApplePersistenceIgnoreState"];
     [[NSUserDefaults standardUserDefaults] synchronize];
     
-    [self setupGlobalGlassmorphismEffects];
+    [self setupLightningStormEffects];
     
-    NSLog(@"⚪️ Glassmorphism application launched");
+    NSLog(@"⚡ Lightning Storm application launched");
 }
 
-- (void)setupGlobalGlassmorphismEffects {
+- (void)setupLightningStormEffects {
     for (NSWindow *window in [NSApplication sharedApplication].windows) {
-        [self applyGlassmorphismToWindow:window];
+        [self applyLightningStormToWindow:window];
     }
     
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -35,14 +35,14 @@
                                                object:nil];
 }
 
-- (void)applyGlassmorphismToWindow:(NSWindow *)window {
+- (void)applyLightningStormToWindow:(NSWindow *)window {
     if (!window) return;
     
     window.titlebarAppearsTransparent = YES;
     window.titleVisibility = NSWindowTitleHidden;
     window.styleMask |= NSWindowStyleMaskFullSizeContentView;
     
-    window.backgroundColor = [NSColor colorWithRed:0.02 green:0.05 blue:0.12 alpha:0.85];
+    window.backgroundColor = [NSColor colorWithRed:0.01 green:0.01 blue:0.04 alpha:0.9];
     
     if (@available(macOS 10.14, *)) {
         window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
@@ -52,49 +52,79 @@
     window.contentView.layer.cornerRadius = 12.0;
     window.contentView.layer.masksToBounds = NO;
     
-    window.contentView.layer.borderWidth = 1.0;
-    window.contentView.layer.borderColor = [NSColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.3].CGColor;
+    window.contentView.layer.borderWidth = 2.0;
+    window.contentView.layer.borderColor = [NSColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.4].CGColor;
     
-    window.contentView.layer.shadowColor = [NSColor colorWithRed:0.2 green:0.5 blue:0.9 alpha:0.6].CGColor;
-    window.contentView.layer.shadowOpacity = 0.5;
+    window.contentView.layer.shadowColor = [NSColor colorWithRed:0.4 green:0.7 blue:1.0 alpha:0.8].CGColor;
+    window.contentView.layer.shadowOpacity = 0.6;
     window.contentView.layer.shadowRadius = 25.0;
     window.contentView.layer.shadowOffset = CGSizeMake(0, -10);
     
-    [self animateWindowGlow:window];
+    [self animateLightningStorm:window];
     
-    NSLog(@"⚪️ Glassmorphism applied to window: %@", window.title);
+    NSLog(@"⚡ Lightning storm applied to window: %@", window.title);
 }
 
-- (void)animateWindowGlow:(NSWindow *)window {
-    CABasicAnimation *glowAnimation = [CABasicAnimation animationWithKeyPath:@"shadowOpacity"];
-    glowAnimation.fromValue = @(0.3);
-    glowAnimation.toValue = @(0.8);
-    glowAnimation.duration = 3.0;
-    glowAnimation.autoreverses = YES;
-    glowAnimation.repeatCount = HUGE_VALF;
-    glowAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+- (void)animateLightningStorm:(NSWindow *)window {
+    CAKeyframeAnimation *lightningFlash = [CAKeyframeAnimation animationWithKeyPath:@"shadowOpacity"];
+    lightningFlash.values = @[@(0.3), @(1.0), @(0.4), @(0.9), @(0.3), @(0.3), @(0.3), @(0.3)];
+    lightningFlash.keyTimes = @[@(0.0), @(0.05), @(0.1), @(0.12), @(0.2), @(0.4), @(0.7), @(1.0)];
+    lightningFlash.duration = 3.5;
+    lightningFlash.repeatCount = HUGE_VALF;
+    lightningFlash.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
     
-    [window.contentView.layer addAnimation:glowAnimation forKey:@"shadowGlow"];
+    [window.contentView.layer addAnimation:lightningFlash forKey:@"lightningFlash"];
     
-    CABasicAnimation *borderAnimation = [CABasicAnimation animationWithKeyPath:@"borderColor"];
-    borderAnimation.fromValue = (id)[NSColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.2].CGColor;
-    borderAnimation.toValue = (id)[NSColor colorWithRed:0.5 green:0.8 blue:1.0 alpha:0.6].CGColor;
-    borderAnimation.duration = 4.0;
-    borderAnimation.autoreverses = YES;
-    borderAnimation.repeatCount = HUGE_VALF;
-    borderAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    CAKeyframeAnimation *electricBorder = [CAKeyframeAnimation animationWithKeyPath:@"borderColor"];
+    NSArray *electricColors = @[
+        (id)[NSColor colorWithRed:0.2 green:0.4 blue:0.8 alpha:0.3].CGColor,
+        (id)[NSColor colorWithRed:0.9 green:0.95 blue:1.0 alpha:0.9].CGColor,
+        (id)[NSColor colorWithRed:0.5 green:0.7 blue:1.0 alpha:0.6].CGColor,
+        (id)[NSColor colorWithRed:0.8 green:0.9 blue:1.0 alpha:0.8].CGColor,
+        (id)[NSColor colorWithRed:0.2 green:0.4 blue:0.8 alpha:0.3].CGColor
+    ];
+    electricBorder.values = electricColors;
+    electricBorder.keyTimes = @[@(0.0), @(0.05), @(0.1), @(0.12), @(1.0)];
+    electricBorder.duration = 3.5;
+    electricBorder.repeatCount = HUGE_VALF;
+    electricBorder.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
     
-    [window.contentView.layer addAnimation:borderAnimation forKey:@"borderGlow"];
+    [window.contentView.layer addAnimation:electricBorder forKey:@"electricBorder"];
+    
+    CABasicAnimation *stormGlow = [CABasicAnimation animationWithKeyPath:@"shadowRadius"];
+    stormGlow.fromValue = @(15.0);
+    stormGlow.toValue = @(35.0);
+    stormGlow.duration = 2.0;
+    stormGlow.autoreverses = YES;
+    stormGlow.repeatCount = HUGE_VALF;
+    stormGlow.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    
+    [window.contentView.layer addAnimation:stormGlow forKey:@"stormGlow"];
+    
+    CAKeyframeAnimation *thunderRumble = [CAKeyframeAnimation animationWithKeyPath:@"shadowOffset"];
+    NSArray *rumbleOffsets = @[
+        [NSValue valueWithSize:NSMakeSize(0, -10)],
+        [NSValue valueWithSize:NSMakeSize(-2, -12)],
+        [NSValue valueWithSize:NSMakeSize(1, -8)],
+        [NSValue valueWithSize:NSMakeSize(-1, -11)],
+        [NSValue valueWithSize:NSMakeSize(0, -10)]
+    ];
+    thunderRumble.values = rumbleOffsets;
+    thunderRumble.keyTimes = @[@(0.0), @(0.05), @(0.1), @(0.12), @(1.0)];
+    thunderRumble.duration = 3.5;
+    thunderRumble.repeatCount = HUGE_VALF;
+    
+    [window.contentView.layer addAnimation:thunderRumble forKey:@"thunderRumble"];
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification {
     NSWindow *window = notification.object;
-    [self applyGlassmorphismToWindow:window];
+    [self applyLightningStormToWindow:window];
 }
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification {
     [self save];
-    NSLog(@"⚪️ Glassmorphism application terminating");
+    NSLog(@"⚡ Lightning Storm application terminating");
 }
 
 - (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app {

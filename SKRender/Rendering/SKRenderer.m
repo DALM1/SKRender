@@ -13,33 +13,45 @@ typedef struct {
     matrix_float4x4 modelViewProjectionMatrix;
     matrix_float4x4 normalMatrix;
     float time;
-    float padding[3];
-} Uniforms;
+    float lightningIntensity;
+    float stormPhase;
+    float flashTiming;
+} StormUniforms;
 
 typedef struct {
     vector_float2 position;
     vector_float2 texCoord;
 } QuadVertex;
 
+typedef struct {
+    vector_float3 position;
+    float intensity;
+    float branchFactor;
+    float timeOffset;
+} LightningVertex;
+
 @interface SKRenderer ()
-@property (nonatomic, strong) id<MTLRenderPipelineState> glassPipelineState;
-@property (nonatomic, strong) id<MTLRenderPipelineState> backgroundPipelineState;
+@property (nonatomic, strong) id<MTLRenderPipelineState> stormBackgroundPipeline;
+@property (nonatomic, strong) id<MTLRenderPipelineState> lightningPipeline;
+@property (nonatomic, strong) id<MTLRenderPipelineState> rainPipeline;
 @property (nonatomic, strong) id<MTLDepthStencilState> depthStencilState;
 @property (nonatomic, strong) id<MTLDepthStencilState> noDepthStencilState;
-@property (nonatomic, strong) id<MTLBuffer> uniformBuffer;
+@property (nonatomic, strong) id<MTLBuffer> stormUniformBuffer;
 @property (nonatomic, strong) id<MTLBuffer> backgroundQuadBuffer;
-@property (nonatomic, strong) SKMesh *mainCube;
-@property (nonatomic, strong) SKMesh *smallCube;
+@property (nonatomic, strong) id<MTLBuffer> lightningBuffer;
+@property (nonatomic, strong) id<MTLBuffer> rainParticleBuffer;
 @property (nonatomic, assign) CFTimeInterval startTime;
 @property (nonatomic, assign) matrix_float4x4 projectionMatrix;
 @property (nonatomic, assign) matrix_float4x4 viewMatrix;
 @property (nonatomic, assign) CGSize viewportSize;
+@property (nonatomic, assign) int lightningVertexCount;
+@property (nonatomic, assign) int rainParticleCount;
 @end
 
 @implementation SKRenderer
 
 - (instancetype)initWithView:(MTKView *)view {
-    NSLog(@"=== Glassmorphism Renderer Init ===");
+    NSLog(@"=== Lightning Storm Init ===");
     if (self = [super init]) {
         self.device = view.device;
         self.commandQueue = [self.device newCommandQueue];
@@ -49,90 +61,40 @@ typedef struct {
         }
         
         self.viewportSize = view.drawableSize;
-        [self setupPipelines];
+        [self setupStormPipelines];
         [self setupDepthStencil];
-        [self setupBuffers];
+        [self setupStormBuffers];
         [self setupMatrices];
-        [self loadModels];
+        [self generateLightningGeometry];
+        [self generateRainParticles];
         
         self.startTime = CACurrentMediaTime();
-        NSLog(@"⚪️ Glassmorphism renderer ready");
+        NSLog(@"⚡ Lightning storm renderer ready");
     }
     return self;
 }
 
-- (void)setupPipelines {
+- (void)setupStormPipelines {
     id<MTLLibrary> library = [self.device newDefaultLibrary];
     if (!library) {
-        NSLog(@"⚫️ Failed to create library");
+        NSLog(@"❌ Failed to create library");
         return;
     }
     
-    [self setupGlassPipeline:library];
-    [self setupBackgroundPipeline:library];
+    [self setupStormBackgroundPipeline:library];
+    [self setupLightningPipeline:library];
+    [self setupRainPipeline:library];
     
-    NSLog(@"⚪️ All pipelines configured correctly");
+    NSLog(@"⚡ Storm pipelines configured");
 }
 
-- (void)setupGlassPipeline:(id<MTLLibrary>)library {
-    id<MTLFunction> vertexFunction = [library newFunctionWithName:@"vertex_main"];
-    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_glassmorphism"];
-    
-    if (!fragmentFunction) {
-        NSLog(@"⚠️ fragment_glassmorphism not found, using fragment_main");
-        fragmentFunction = [library newFunctionWithName:@"fragment_main"];
-    }
-    
-    if (!vertexFunction || !fragmentFunction) {
-        NSLog(@"⚫️ Glass shader functions not found");
-        return;
-    }
-    
-    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
-    descriptor.vertexFunction = vertexFunction;
-    descriptor.fragmentFunction = fragmentFunction;
-    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-    
-    descriptor.colorAttachments[0].blendingEnabled = YES;
-    descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-    descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    
-    MTLVertexDescriptor *vertexDescriptor = [[MTLVertexDescriptor alloc] init];
-    vertexDescriptor.attributes[0].format = MTLVertexFormatFloat3;
-    vertexDescriptor.attributes[0].offset = 0;
-    vertexDescriptor.attributes[0].bufferIndex = 0;
-    vertexDescriptor.attributes[1].format = MTLVertexFormatFloat3;
-    vertexDescriptor.attributes[1].offset = 12;
-    vertexDescriptor.attributes[1].bufferIndex = 0;
-    vertexDescriptor.attributes[2].format = MTLVertexFormatFloat2;
-    vertexDescriptor.attributes[2].offset = 24;
-    vertexDescriptor.attributes[2].bufferIndex = 0;
-    vertexDescriptor.layouts[0].stride = 32;
-    vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-    
-    descriptor.vertexDescriptor = vertexDescriptor;
-    
-    NSError *error;
-    self.glassPipelineState = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (error) {
-        NSLog(@"⚫️ Glass pipeline error: %@", error);
-    } else {
-        NSLog(@"⚪️ Glass pipeline created");
-    }
-}
-
-- (void)setupBackgroundPipeline:(id<MTLLibrary>)library {
+- (void)setupStormBackgroundPipeline:(id<MTLLibrary>)library {
     id<MTLFunction> vertexFunction = [library newFunctionWithName:@"vertex_background"];
-    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_background"];
+    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_storm_background"];
     
     if (!vertexFunction || !fragmentFunction) {
-        NSLog(@"⚠️ Background shaders not found, creating simple background");
-        return;
+        NSLog(@"⚠️ Storm background shaders not found, using fallback");
+        fragmentFunction = [library newFunctionWithName:@"fragment_background"];
     }
     
     MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
@@ -149,16 +111,99 @@ typedef struct {
     vertexDescriptor.attributes[1].offset = 8;
     vertexDescriptor.attributes[1].bufferIndex = 0;
     vertexDescriptor.layouts[0].stride = 16;
-    vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
     
     descriptor.vertexDescriptor = vertexDescriptor;
     
     NSError *error;
-    self.backgroundPipelineState = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    self.stormBackgroundPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
     if (error) {
-        NSLog(@"⚫️ Background pipeline error: %@", error);
-    } else {
-        NSLog(@"⚪️ Background pipeline created with depth format");
+        NSLog(@"❌ Storm background pipeline error: %@", error);
+    }
+}
+
+- (void)setupLightningPipeline:(id<MTLLibrary>)library {
+    id<MTLFunction> vertexFunction = [library newFunctionWithName:@"vertex_lightning"];
+    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_lightning"];
+    
+    if (!vertexFunction || !fragmentFunction) {
+        NSLog(@"⚠️ Lightning shaders not found, using fallback");
+        vertexFunction = [library newFunctionWithName:@"vertex_main"];
+        fragmentFunction = [library newFunctionWithName:@"fragment_main"];
+    }
+    
+    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.vertexFunction = vertexFunction;
+    descriptor.fragmentFunction = fragmentFunction;
+    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    
+    descriptor.colorAttachments[0].blendingEnabled = YES;
+    descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+    descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
+    
+    MTLVertexDescriptor *vertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    vertexDescriptor.attributes[0].format = MTLVertexFormatFloat3;
+    vertexDescriptor.attributes[0].offset = 0;
+    vertexDescriptor.attributes[0].bufferIndex = 0;
+    vertexDescriptor.attributes[1].format = MTLVertexFormatFloat;
+    vertexDescriptor.attributes[1].offset = 12;
+    vertexDescriptor.attributes[1].bufferIndex = 0;
+    vertexDescriptor.attributes[2].format = MTLVertexFormatFloat;
+    vertexDescriptor.attributes[2].offset = 16;
+    vertexDescriptor.attributes[2].bufferIndex = 0;
+    vertexDescriptor.attributes[3].format = MTLVertexFormatFloat;
+    vertexDescriptor.attributes[3].offset = 20;
+    vertexDescriptor.attributes[3].bufferIndex = 0;
+    vertexDescriptor.layouts[0].stride = 24;
+    
+    descriptor.vertexDescriptor = vertexDescriptor;
+    
+    NSError *error;
+    self.lightningPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (error) {
+        NSLog(@"❌ Lightning pipeline error: %@", error);
+    }
+}
+
+- (void)setupRainPipeline:(id<MTLLibrary>)library {
+    id<MTLFunction> vertexFunction = [library newFunctionWithName:@"vertex_rain"];
+    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragment_rain"];
+    
+    if (!vertexFunction || !fragmentFunction) {
+        vertexFunction = [library newFunctionWithName:@"vertex_main"];
+        fragmentFunction = [library newFunctionWithName:@"fragment_glassmorphism"];
+    }
+    
+    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.vertexFunction = vertexFunction;
+    descriptor.fragmentFunction = fragmentFunction;
+    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    
+    descriptor.colorAttachments[0].blendingEnabled = YES;
+    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    
+    MTLVertexDescriptor *vertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    vertexDescriptor.attributes[0].format = MTLVertexFormatFloat3;
+    vertexDescriptor.attributes[0].offset = 0;
+    vertexDescriptor.attributes[0].bufferIndex = 0;
+    vertexDescriptor.attributes[1].format = MTLVertexFormatFloat3;
+    vertexDescriptor.attributes[1].offset = 12;
+    vertexDescriptor.attributes[1].bufferIndex = 0;
+    vertexDescriptor.attributes[2].format = MTLVertexFormatFloat2;
+    vertexDescriptor.attributes[2].offset = 24;
+    vertexDescriptor.attributes[2].bufferIndex = 0;
+    vertexDescriptor.layouts[0].stride = 32;
+    
+    descriptor.vertexDescriptor = vertexDescriptor;
+    
+    NSError *error;
+    self.rainPipeline = [self.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (error) {
+        NSLog(@"❌ Rain pipeline error: %@", error);
     }
 }
 
@@ -172,12 +217,10 @@ typedef struct {
     noDepthDescriptor.depthCompareFunction = MTLCompareFunctionAlways;
     noDepthDescriptor.depthWriteEnabled = NO;
     self.noDepthStencilState = [self.device newDepthStencilStateWithDescriptor:noDepthDescriptor];
-    
-    NSLog(@"⚪️ Depth stencil states configured");
 }
 
-- (void)setupBuffers {
-    self.uniformBuffer = [self.device newBufferWithLength:sizeof(Uniforms) options:MTLResourceStorageModeShared];
+- (void)setupStormBuffers {
+    self.stormUniformBuffer = [self.device newBufferWithLength:sizeof(StormUniforms) options:MTLResourceStorageModeShared];
     
     QuadVertex quadVertices[] = {
         {{-1.0f, -1.0f}, {0.0f, 1.0f}},
@@ -189,8 +232,6 @@ typedef struct {
     self.backgroundQuadBuffer = [self.device newBufferWithBytes:quadVertices
                                                         length:sizeof(quadVertices)
                                                        options:MTLResourceStorageModeShared];
-    
-    NSLog(@"⚪️ Buffers created");
 }
 
 - (void)setupMatrices {
@@ -210,7 +251,7 @@ typedef struct {
         {0,   0, zs * nearZ, 0}
     }};
     
-    vector_float3 eye = {0, 3, 8};
+    vector_float3 eye = {0, 2, 12};
     vector_float3 target = {0, 0, 0};
     vector_float3 up = {0, 1, 0};
     
@@ -224,25 +265,101 @@ typedef struct {
         {xAxis.z, yAxis.z, zAxis.z, 0},
         {-vector_dot(xAxis, eye), -vector_dot(yAxis, eye), -vector_dot(zAxis, eye), 1}
     }};
-    
-    NSLog(@"⚪️ Matrices configured");
 }
 
-- (void)loadModels {
-    self.mainCube = [SKModelLoader createGlassmorphismCubeWithDevice:self.device];
-    self.smallCube = [SKModelLoader createGlassmorphismCubeWithDevice:self.device];
+- (void)generateLightningGeometry {
+    int maxLightningVertices = 500;
+    LightningVertex *lightningVertices = malloc(maxLightningVertices * sizeof(LightningVertex));
     
-    if (self.mainCube && self.smallCube) {
-        NSLog(@"⚪️ Glass models loaded");
-    } else {
-        NSLog(@"⚫️ Failed to load models");
+    int vertexIndex = 0;
+    
+    for (int bolt = 0; bolt < 3; bolt++) {
+        float startX = (bolt - 1) * 8.0f;
+        float startY = 15.0f;
+        float currentX = startX;
+        float currentY = startY;
+        float timeOffset = bolt * 0.3f;
+        
+        for (int segment = 0; segment < 80 && vertexIndex < maxLightningVertices - 1; segment++) {
+            float progress = (float)segment / 80.0f;
+            float branchChance = 0.1f + progress * 0.2f;
+            
+            float deltaX = (drand48() - 0.5f) * 2.0f;
+            float deltaY = -0.4f - drand48() * 0.3f;
+            
+            currentX += deltaX;
+            currentY += deltaY;
+            
+            lightningVertices[vertexIndex] = (LightningVertex){
+                {currentX, currentY, 0},
+                1.0f - progress * 0.3f,
+                branchChance,
+                timeOffset
+            };
+            vertexIndex++;
+            
+            if (drand48() < branchChance && vertexIndex < maxLightningVertices - 10) {
+                float branchX = currentX;
+                float branchY = currentY;
+                int branchLength = 3 + drand48() * 8;
+                
+                for (int b = 0; b < branchLength && vertexIndex < maxLightningVertices - 1; b++) {
+                    branchX += (drand48() - 0.5f) * 1.5f;
+                    branchY -= 0.2f + drand48() * 0.2f;
+                    
+                    lightningVertices[vertexIndex] = (LightningVertex){
+                        {branchX, branchY, 0},
+                        (1.0f - progress * 0.3f) * 0.6f,
+                        0.0f,
+                        timeOffset + b * 0.1f
+                    };
+                    vertexIndex++;
+                }
+            }
+        }
     }
+    
+    self.lightningVertexCount = vertexIndex;
+    self.lightningBuffer = [self.device newBufferWithBytes:lightningVertices
+                                                   length:vertexIndex * sizeof(LightningVertex)
+                                                  options:MTLResourceStorageModeShared];
+    
+    free(lightningVertices);
+    NSLog(@"⚡ Generated %d lightning vertices", self.lightningVertexCount);
+}
+
+- (void)generateRainParticles {
+    typedef struct {
+        vector_float3 position;
+        vector_float3 normal;
+        vector_float2 texCoord;
+    } RainVertex;
+    
+    int particleCount = 800;
+    RainVertex *rainVertices = malloc(particleCount * sizeof(RainVertex));
+    
+    for (int i = 0; i < particleCount; i++) {
+        float x = (drand48() - 0.5f) * 50.0f;
+        float y = 20.0f + drand48() * 10.0f;
+        float z = (drand48() - 0.5f) * 50.0f;
+        
+        rainVertices[i] = (RainVertex){
+            {x, y, z},
+            {0, -1, 0},
+            {drand48(), drand48()}
+        };
+    }
+    
+    self.rainParticleCount = particleCount;
+    self.rainParticleBuffer = [self.device newBufferWithBytes:rainVertices
+                                                       length:particleCount * sizeof(RainVertex)
+                                                      options:MTLResourceStorageModeShared];
+    
+    free(rainVertices);
+    NSLog(@"🌧️ Generated %d rain particles", self.rainParticleCount);
 }
 
 - (void)drawInMTKView:(MTKView *)view {
-    static int frameCount = 0;
-    frameCount++;
-    
     @autoreleasepool {
         id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
         if (!commandBuffer) return;
@@ -250,18 +367,17 @@ typedef struct {
         MTLRenderPassDescriptor *renderPassDescriptor = view.currentRenderPassDescriptor;
         if (!renderPassDescriptor) return;
         
-        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0.02, 0.02, 0.05, 1.0);
         renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
-        renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
         
         id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
         if (!encoder) return;
         
-        [self updateUniforms];
+        [self updateStormUniforms];
         
-        [self renderBackground:encoder];
-        [self renderFloatingParticles:encoder];
-        [self renderMainObjects:encoder];
+        [self renderStormBackground:encoder];
+        [self renderRainParticles:encoder];
+        [self renderLightning:encoder];
         
         [encoder endEncoding];
         
@@ -270,130 +386,70 @@ typedef struct {
         }
         
         [commandBuffer commit];
-        
-        if (frameCount <= 3) {
-            NSLog(@"⚪️ Glassmorphism frame %d rendered", frameCount);
-        }
     }
 }
 
-- (void)renderBackground:(id<MTLRenderCommandEncoder>)encoder {
-    if (!self.backgroundPipelineState || !self.backgroundQuadBuffer) return;
+- (void)renderStormBackground:(id<MTLRenderCommandEncoder>)encoder {
+    if (!self.stormBackgroundPipeline) return;
     
-    [encoder setRenderPipelineState:self.backgroundPipelineState];
+    [encoder setRenderPipelineState:self.stormBackgroundPipeline];
     [encoder setDepthStencilState:self.noDepthStencilState];
-    [encoder setFragmentBuffer:self.uniformBuffer offset:0 atIndex:1];
+    [encoder setFragmentBuffer:self.stormUniformBuffer offset:0 atIndex:1];
     [encoder setVertexBuffer:self.backgroundQuadBuffer offset:0 atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-- (void)renderFloatingParticles:(id<MTLRenderCommandEncoder>)encoder {
-    if (!self.glassPipelineState || !self.smallCube) return;
+- (void)renderRainParticles:(id<MTLRenderCommandEncoder>)encoder {
+    if (!self.rainPipeline || !self.rainParticleBuffer) return;
     
-    [encoder setRenderPipelineState:self.glassPipelineState];
+    [encoder setRenderPipelineState:self.rainPipeline];
     [encoder setDepthStencilState:self.depthStencilState];
-    [encoder setVertexBuffer:self.uniformBuffer offset:0 atIndex:1];
-    [encoder setFragmentBuffer:self.uniformBuffer offset:0 atIndex:1];
-    [encoder setVertexBuffer:self.smallCube.vertexBuffer offset:0 atIndex:0];
+    [encoder setVertexBuffer:self.stormUniformBuffer offset:0 atIndex:1];
+    [encoder setFragmentBuffer:self.stormUniformBuffer offset:0 atIndex:1];
+    [encoder setVertexBuffer:self.rainParticleBuffer offset:0 atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:self.rainParticleCount];
+}
+
+- (void)renderLightning:(id<MTLRenderCommandEncoder>)encoder {
+    if (!self.lightningPipeline || !self.lightningBuffer) return;
     
+    [encoder setRenderPipelineState:self.lightningPipeline];
+    [encoder setDepthStencilState:self.noDepthStencilState];
+    [encoder setVertexBuffer:self.stormUniformBuffer offset:0 atIndex:1];
+    [encoder setFragmentBuffer:self.stormUniformBuffer offset:0 atIndex:1];
+    [encoder setVertexBuffer:self.lightningBuffer offset:0 atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeLineStrip vertexStart:0 vertexCount:self.lightningVertexCount];
+}
+
+- (void)updateStormUniforms {
     CFTimeInterval currentTime = CACurrentMediaTime();
     float time = (float)(currentTime - self.startTime);
     
-    for (int i = 0; i < 6; i++) {
-        float angle = (float)i / 6.0f * M_PI * 2.0f + time * 0.2f;
-        float radius = 5.0f + sinf(time * 0.3f + i) * 1.5f;
-        float height = sinf(time * 0.25f + i * 0.5f) * 2.0f;
-        
-        vector_float3 position = {
-            cosf(angle) * radius,
-            height,
-            sinf(angle) * radius
-        };
-        
-        float scale = 0.25f + sinf(time * 0.4f + i) * 0.15f;
-        matrix_float4x4 scaleMatrix = (matrix_float4x4){{
-            {scale, 0, 0, 0},
-            {0, scale, 0, 0},
-            {0, 0, scale, 0},
-            {0, 0, 0, 1}
-        }};
-        
-        matrix_float4x4 translationMatrix = (matrix_float4x4){{
-            {1, 0, 0, 0},
-            {0, 1, 0, 0},
-            {0, 0, 1, 0},
-            {position.x, position.y, position.z, 1}
-        }};
-        
-        matrix_float4x4 modelMatrix = matrix_multiply(translationMatrix, scaleMatrix);
-        matrix_float4x4 modelViewMatrix = matrix_multiply(self.viewMatrix, modelMatrix);
-        matrix_float4x4 mvp = matrix_multiply(self.projectionMatrix, modelViewMatrix);
-        
-        Uniforms *uniformsPtr = (Uniforms *)self.uniformBuffer.contents;
-        uniformsPtr->modelViewProjectionMatrix = mvp;
-        uniformsPtr->normalMatrix = modelViewMatrix;
-        
-        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                            indexCount:self.smallCube.indexCount
-                             indexType:MTLIndexTypeUInt16
-                           indexBuffer:self.smallCube.indexBuffer
-                     indexBufferOffset:0];
+    float flashCycle = fmodf(time * 0.8f, 4.0f);
+    float lightningIntensity = 0.0f;
+    
+    if (flashCycle < 0.1f) {
+        lightningIntensity = 1.0f;
+    } else if (flashCycle < 0.15f) {
+        lightningIntensity = 0.3f;
+    } else if (flashCycle < 0.2f) {
+        lightningIntensity = 0.8f;
+    } else if (flashCycle > 2.0f && flashCycle < 2.05f) {
+        lightningIntensity = 0.6f;
     }
-}
-
-- (void)renderMainObjects:(id<MTLRenderCommandEncoder>)encoder {
-    if (!self.glassPipelineState || !self.mainCube) return;
     
-    [encoder setRenderPipelineState:self.glassPipelineState];
-    [encoder setDepthStencilState:self.depthStencilState];
-    [encoder setVertexBuffer:self.uniformBuffer offset:0 atIndex:1];
-    [encoder setFragmentBuffer:self.uniformBuffer offset:0 atIndex:1];
-    [encoder setVertexBuffer:self.mainCube.vertexBuffer offset:0 atIndex:0];
+    float stormPhase = sin(time * 0.2f) * 0.5f + 0.5f;
+    float flashTiming = sin(time * 3.0f);
     
-    CFTimeInterval currentTime = CACurrentMediaTime();
-    float time = (float)(currentTime - self.startTime);
-    
-    float rotationY = time * 0.15f;
-    float rotationX = time * 0.1f;
-    
-    float cosY = cosf(rotationY), sinY = sinf(rotationY);
-    float cosX = cosf(rotationX), sinX = sinf(rotationX);
-    
-    matrix_float4x4 rotationMatrixY = (matrix_float4x4){{
-        {cosY, 0, sinY, 0},
-        {0, 1, 0, 0},
-        {-sinY, 0, cosY, 0},
-        {0, 0, 0, 1}
-    }};
-    
-    matrix_float4x4 rotationMatrixX = (matrix_float4x4){{
-        {1, 0, 0, 0},
-        {0, cosX, -sinX, 0},
-        {0, sinX, cosX, 0},
-        {0, 0, 0, 1}
-    }};
-    
-    matrix_float4x4 modelMatrix = matrix_multiply(rotationMatrixY, rotationMatrixX);
-    matrix_float4x4 modelViewMatrix = matrix_multiply(self.viewMatrix, modelMatrix);
-    matrix_float4x4 modelViewProjectionMatrix = matrix_multiply(self.projectionMatrix, modelViewMatrix);
-    
-    Uniforms *uniformsPtr = (Uniforms *)self.uniformBuffer.contents;
-    uniformsPtr->modelViewProjectionMatrix = modelViewProjectionMatrix;
-    uniformsPtr->normalMatrix = modelViewMatrix;
-    
-    [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                        indexCount:self.mainCube.indexCount
-                         indexType:MTLIndexTypeUInt16
-                       indexBuffer:self.mainCube.indexBuffer
-                 indexBufferOffset:0];
-}
-
-- (void)updateUniforms {
-    CFTimeInterval currentTime = CACurrentMediaTime();
-    float time = (float)(currentTime - self.startTime);
-    
-    Uniforms *uniformsPtr = (Uniforms *)self.uniformBuffer.contents;
+    StormUniforms *uniformsPtr = (StormUniforms *)self.stormUniformBuffer.contents;
     uniformsPtr->time = time;
+    uniformsPtr->lightningIntensity = lightningIntensity;
+    uniformsPtr->stormPhase = stormPhase;
+    uniformsPtr->flashTiming = flashTiming;
+    
+    matrix_float4x4 modelViewProjectionMatrix = matrix_multiply(self.projectionMatrix, self.viewMatrix);
+    uniformsPtr->modelViewProjectionMatrix = modelViewProjectionMatrix;
+    uniformsPtr->normalMatrix = self.viewMatrix;
 }
 
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {

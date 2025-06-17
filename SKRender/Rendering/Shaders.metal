@@ -32,15 +32,32 @@ struct BackgroundVertexOut {
     float2 texCoord;
 };
 
-struct Uniforms {
+struct LightningVertexIn {
+    float3 position [[attribute(0)]];
+    float intensity [[attribute(1)]];
+    float branchFactor [[attribute(2)]];
+    float timeOffset [[attribute(3)]];
+};
+
+struct LightningVertexOut {
+    float4 position [[position]];
+    float intensity;
+    float branchFactor;
+    float timeOffset;
+    float3 worldPos;
+};
+
+struct StormUniforms {
     float4x4 modelViewProjectionMatrix;
     float4x4 normalMatrix;
     float time;
-    float padding[3];
+    float lightningIntensity;
+    float stormPhase;
+    float flashTiming;
 };
 
 vertex VertexOut vertex_main(VertexIn in [[stage_in]],
-                            constant Uniforms& uniforms [[buffer(1)]]) {
+                            constant StormUniforms& uniforms [[buffer(1)]]) {
     VertexOut out;
     
     out.position = uniforms.modelViewProjectionMatrix * float4(in.position, 1.0);
@@ -53,10 +70,39 @@ vertex VertexOut vertex_main(VertexIn in [[stage_in]],
 }
 
 vertex BackgroundVertexOut vertex_background(BackgroundVertexIn in [[stage_in]],
-                                           constant Uniforms& uniforms [[buffer(1)]]) {
+                                           constant StormUniforms& uniforms [[buffer(1)]]) {
     BackgroundVertexOut out;
     out.position = float4(in.position, 0.0, 1.0);
     out.texCoord = in.texCoord;
+    return out;
+}
+
+vertex LightningVertexOut vertex_lightning(LightningVertexIn in [[stage_in]],
+                                          constant StormUniforms& uniforms [[buffer(1)]]) {
+    LightningVertexOut out;
+    
+    out.position = uniforms.modelViewProjectionMatrix * float4(in.position, 1.0);
+    out.intensity = in.intensity;
+    out.branchFactor = in.branchFactor;
+    out.timeOffset = in.timeOffset;
+    out.worldPos = in.position;
+    
+    return out;
+}
+
+vertex VertexOut vertex_rain(VertexIn in [[stage_in]],
+                            constant StormUniforms& uniforms [[buffer(1)]]) {
+    VertexOut out;
+    
+    float3 animatedPos = in.position;
+    animatedPos.y -= fmod(uniforms.time * 8.0 + in.texCoord.x * 10.0, 30.0);
+    
+    out.position = uniforms.modelViewProjectionMatrix * float4(animatedPos, 1.0);
+    out.worldPos = animatedPos;
+    out.normal = in.normal;
+    out.texCoord = in.texCoord;
+    out.viewPos = (uniforms.normalMatrix * float4(animatedPos, 1.0)).xyz;
+    
     return out;
 }
 
@@ -92,52 +138,106 @@ float fbm(float2 uv) {
     return value;
 }
 
-fragment float4 fragment_background(BackgroundVertexOut in [[stage_in]],
-                                   constant Uniforms& uniforms [[buffer(1)]]) {
+fragment float4 fragment_storm_background(BackgroundVertexOut in [[stage_in]],
+                                         constant StormUniforms& uniforms [[buffer(1)]]) {
     float2 uv = in.texCoord;
     float2 center = float2(0.5, 0.5);
-    float dist = distance(uv, center);
     
-    float3 color1 = float3(0.05, 0.08, 0.25);
-    float3 color2 = float3(0.15, 0.25, 0.45);
-    float3 color3 = float3(0.25, 0.35, 0.65);
-    float3 color4 = float3(0.1, 0.2, 0.5);
+    float3 darkSky = float3(0.02, 0.02, 0.08);
+    float3 stormClouds = float3(0.08, 0.08, 0.15);
+    float3 lightningGlow = float3(0.4, 0.6, 1.0);
     
-    float t1 = sin(uniforms.time * 0.5 + dist * 3.0) * 0.5 + 0.5;
-    float t2 = cos(uniforms.time * 0.3 + uv.x * 4.0) * 0.5 + 0.5;
-    float t3 = sin(uniforms.time * 0.7 + uv.y * 5.0) * 0.5 + 0.5;
+    float2 cloudUV1 = uv * 3.0 + uniforms.time * 0.05;
+    float2 cloudUV2 = uv * 5.0 - uniforms.time * 0.03;
+    float2 cloudUV3 = uv * 8.0 + uniforms.time * 0.08;
     
-    float3 gradient = mix(color1, color2, t1);
-    gradient = mix(gradient, color3, t2 * 0.3);
-    gradient = mix(gradient, color4, t3 * 0.2);
+    float clouds1 = fbm(cloudUV1) * 0.6;
+    float clouds2 = fbm(cloudUV2) * 0.4;
+    float clouds3 = smoothNoise(cloudUV3) * 0.3;
     
-    float2 noiseUV1 = uv * 3.0 + uniforms.time * 0.1;
-    float2 noiseUV2 = uv * 5.0 - uniforms.time * 0.08;
-    float2 noiseUV3 = uv * 8.0 + uniforms.time * 0.12;
+    float totalClouds = (clouds1 + clouds2 + clouds3) / 3.0;
+    totalClouds = pow(totalClouds, 1.5);
     
-    float noise1 = fbm(noiseUV1) * 0.3;
-    float noise2 = fbm(noiseUV2) * 0.2;
-    float noise3 = fbm(noiseUV3) * 0.15;
+    float3 skyColor = mix(darkSky, stormClouds, totalClouds);
     
-    gradient += noise1 + noise2 + noise3;
+    float lightningFlash = uniforms.lightningIntensity;
+    float flashDistance = distance(uv, float2(0.3 + sin(uniforms.time) * 0.2, 0.7));
+    float lightningEffect = lightningFlash * (1.0 / (1.0 + flashDistance * 8.0));
     
-    float orb1 = 0.02 / distance(uv, float2(0.3 + sin(uniforms.time) * 0.2, 0.7 + cos(uniforms.time * 0.7) * 0.15));
-    float orb2 = 0.015 / distance(uv, float2(0.8 + cos(uniforms.time * 0.8) * 0.25, 0.3 + sin(uniforms.time * 0.6) * 0.2));
-    float orb3 = 0.025 / distance(uv, float2(0.6 + sin(uniforms.time * 0.5) * 0.3, 0.5 + cos(uniforms.time * 0.9) * 0.25));
+    skyColor += lightningGlow * lightningEffect * 0.8;
     
-    gradient += orb1 * float3(0.4, 0.7, 1.0) * 0.3;
-    gradient += orb2 * float3(0.7, 0.4, 1.0) * 0.25;
-    gradient += orb3 * float3(0.5, 0.8, 1.0) * 0.35;
+    float2 electricUV = uv * 15.0 + uniforms.time * 2.0;
+    float electricNoise = smoothNoise(electricUV) * lightningFlash * 0.1;
+    skyColor += electricNoise * lightningGlow;
     
-    float vignette = 1.0 - dist * 1.2;
+    float stormIntensity = sin(uniforms.time * 0.3) * 0.2 + 0.8;
+    skyColor *= stormIntensity;
+    
+    float vignette = 1.0 - distance(uv, center) * 0.8;
     vignette = clamp(vignette, 0.0, 1.0);
-    gradient *= vignette;
+    skyColor *= vignette;
     
-    return float4(gradient, 1.0);
+    return float4(skyColor, 1.0);
+}
+
+fragment float4 fragment_lightning(LightningVertexOut in [[stage_in]],
+                                  constant StormUniforms& uniforms [[buffer(1)]]) {
+    
+    float timePhase = uniforms.time + in.timeOffset;
+    float visibility = sin(timePhase * 15.0) * 0.5 + 0.5;
+    visibility *= uniforms.lightningIntensity;
+    
+    float electricPulse = sin(timePhase * 30.0) * 0.3 + 0.7;
+    
+    float3 coreColor = float3(1.0, 1.0, 1.0);
+    float3 electricBlue = float3(0.3, 0.7, 1.0);
+    float3 electricPurple = float3(0.6, 0.3, 1.0);
+    
+    float branchIntensity = 1.0 - in.branchFactor;
+    float3 lightningColor = mix(electricBlue, coreColor, branchIntensity);
+    lightningColor = mix(lightningColor, electricPurple, in.branchFactor * 0.3);
+    
+    lightningColor *= in.intensity * electricPulse * visibility;
+    
+    float fresnel = pow(1.0 - abs(sin(timePhase * 20.0)), 2.0);
+    lightningColor += fresnel * float3(0.8, 0.9, 1.0) * 0.4;
+    
+    float glowIntensity = in.intensity * visibility * 2.0;
+    lightningColor *= glowIntensity;
+    
+    float alpha = in.intensity * visibility * (0.6 + electricPulse * 0.4);
+    alpha = clamp(alpha, 0.0, 1.0);
+    
+    return float4(lightningColor, alpha);
+}
+
+fragment float4 fragment_rain(VertexOut in [[stage_in]],
+                             constant StormUniforms& uniforms [[buffer(1)]]) {
+    
+    float3 viewDir = normalize(-in.viewPos);
+    float3 normal = normalize(in.normal);
+    
+    float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 1.5);
+    
+    float dropletNoise = smoothNoise(in.texCoord * 100.0 + uniforms.time * 5.0);
+    
+    float3 rainColor = float3(0.6, 0.8, 1.0);
+    float3 baseColor = rainColor * (0.4 + fresnel * 0.6);
+    
+    float lightningReflection = uniforms.lightningIntensity * fresnel * 0.8;
+    baseColor += lightningReflection * float3(0.9, 0.95, 1.0);
+    
+    baseColor *= (0.8 + dropletNoise * 0.4);
+    
+    float alpha = 0.15 + fresnel * 0.25 + lightningReflection * 0.3;
+    alpha *= (0.7 + dropletNoise * 0.3);
+    alpha = clamp(alpha, 0.0, 0.6);
+    
+    return float4(baseColor, alpha);
 }
 
 fragment float4 fragment_glassmorphism(VertexOut in [[stage_in]],
-                                      constant Uniforms& uniforms [[buffer(1)]]) {
+                                      constant StormUniforms& uniforms [[buffer(1)]]) {
     
     float3 lightDir1 = normalize(float3(1.0, 1.0, 1.0));
     float3 lightDir2 = normalize(float3(-0.5, 0.8, 0.5));
@@ -213,29 +313,53 @@ fragment float4 fragment_glassmorphism(VertexOut in [[stage_in]],
 }
 
 fragment float4 fragment_main(VertexOut in [[stage_in]],
-                             constant Uniforms& uniforms [[buffer(1)]]) {
+                             constant StormUniforms& uniforms [[buffer(1)]]) {
     
     float pulse = sin(uniforms.time * 2.0) * 0.5 + 0.5;
     
     return float4(1.0, pulse, 0.0, 1.0);
 }
 
-vertex VertexOut vertex_fullscreen(VertexIn in [[stage_in]],
-                                  constant Uniforms& uniforms [[buffer(1)]]) {
-    VertexOut out;
-    out.position = float4(in.position.xy, 0.0, 1.0);
-    out.worldPos = in.position;
-    out.normal = in.normal;
-    out.texCoord = in.texCoord;
-    return out;
-}
-
-fragment float4 fragment_test(VertexOut in [[stage_in]],
-                             constant Uniforms& uniforms [[buffer(1)]]) {
+fragment float4 fragment_background(BackgroundVertexOut in [[stage_in]],
+                                   constant StormUniforms& uniforms [[buffer(1)]]) {
+    float2 uv = in.texCoord;
+    float2 center = float2(0.5, 0.5);
+    float dist = distance(uv, center);
     
-    float pulse = sin(uniforms.time * 2.0) * 0.5 + 0.5;
+    float3 color1 = float3(0.05, 0.08, 0.25);
+    float3 color2 = float3(0.15, 0.25, 0.45);
+    float3 color3 = float3(0.25, 0.35, 0.65);
+    float3 color4 = float3(0.1, 0.2, 0.5);
     
-    float3 color = float3(1.0, pulse, 0.0);
+    float t1 = sin(uniforms.time * 0.5 + dist * 3.0) * 0.5 + 0.5;
+    float t2 = cos(uniforms.time * 0.3 + uv.x * 4.0) * 0.5 + 0.5;
+    float t3 = sin(uniforms.time * 0.7 + uv.y * 5.0) * 0.5 + 0.5;
     
-    return float4(color, 1.0);
+    float3 gradient = mix(color1, color2, t1);
+    gradient = mix(gradient, color3, t2 * 0.3);
+    gradient = mix(gradient, color4, t3 * 0.2);
+    
+    float2 noiseUV1 = uv * 3.0 + uniforms.time * 0.1;
+    float2 noiseUV2 = uv * 5.0 - uniforms.time * 0.08;
+    float2 noiseUV3 = uv * 8.0 + uniforms.time * 0.12;
+    
+    float noise1 = fbm(noiseUV1) * 0.3;
+    float noise2 = fbm(noiseUV2) * 0.2;
+    float noise3 = fbm(noiseUV3) * 0.15;
+    
+    gradient += noise1 + noise2 + noise3;
+    
+    float orb1 = 0.02 / distance(uv, float2(0.3 + sin(uniforms.time) * 0.2, 0.7 + cos(uniforms.time * 0.7) * 0.15));
+    float orb2 = 0.015 / distance(uv, float2(0.8 + cos(uniforms.time * 0.8) * 0.25, 0.3 + sin(uniforms.time * 0.6) * 0.2));
+    float orb3 = 0.025 / distance(uv, float2(0.6 + sin(uniforms.time * 0.5) * 0.3, 0.5 + cos(uniforms.time * 0.9) * 0.25));
+    
+    gradient += orb1 * float3(0.4, 0.7, 1.0) * 0.3;
+    gradient += orb2 * float3(0.7, 0.4, 1.0) * 0.25;
+    gradient += orb3 * float3(0.5, 0.8, 1.0) * 0.35;
+    
+    float vignette = 1.0 - dist * 1.2;
+    vignette = clamp(vignette, 0.0, 1.0);
+    gradient *= vignette;
+    
+    return float4(gradient, 1.0);
 }
