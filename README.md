@@ -8,7 +8,7 @@
 
 # SKRender - Moteur de Rendu Glassmorphism 3D
 SKRender est un moteur de rendu 3D moderne développé en Objective-C et Metal, spécialisé dans les effets glassmorphism et les interfaces immersives pour macOS.
-Caractéristiques Principales
+
 # Effets Glassmorphism Avancés
 
 Transparence ultra-réaliste avec effets fresnel et reflets dynamiques
