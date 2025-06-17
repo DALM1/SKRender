@@ -1,0 +1,11 @@
+Model Information:
+* title:	Skateboard_01
+* source:	https://sketchfab.com/3d-models/skateboard-01-bc02544579d34003a703962d7b930e7b
+* author:	CrazyScans (https://sketchfab.com/RandomScan)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Skateboard_01" (https://sketchfab.com/3d-models/skateboard-01-bc02544579d34003a703962d7b930e7b) by CrazyScans (https://sketchfab.com/RandomScan) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
