@@ -1,26 +1,20 @@
-//
-//  SKEngine.h
-//  SKRender
-//
-//  Created by Dimitri ALMON on 16/06/2025.
-//
-
 #import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 #import <CoreData/CoreData.h>
-#import "SKMath.h"
 
-@class SKRenderer;
-@class SKScene;
+@class SKRenderer, SKScene;
 
 @interface SKEngine : NSObject
 
+@property (nonatomic, strong) id<MTLDevice> device;
 @property (nonatomic, strong) SKRenderer *renderer;
 @property (nonatomic, strong) SKScene *currentScene;
-@property (nonatomic, strong) NSManagedObjectContext *managedObjectContext;
+@property (nonatomic, strong) NSManagedObjectContext *context;
 
 + (instancetype)sharedEngine;
 - (void)initializeWithView:(MTKView *)view context:(NSManagedObjectContext *)context;
 - (void)update:(CFTimeInterval)deltaTime;
+- (void)render;
 
 @end

@@ -6,102 +6,158 @@
 //
 
 #import "AppDelegate.h"
+#import <QuartzCore/QuartzCore.h>
 
 @interface AppDelegate ()
-
-
 - (void)save;
-
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
-    // Insert code here to initialize your application
+    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"NSQuitAlwaysKeepsWindows"];
+    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"ApplePersistenceIgnoreState"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    
+    [self setupGlobalGlassmorphismEffects];
+    
+    NSLog(@"⚪️ Glassmorphism application launched");
 }
 
+- (void)setupGlobalGlassmorphismEffects {
+    for (NSWindow *window in [NSApplication sharedApplication].windows) {
+        [self applyGlassmorphismToWindow:window];
+    }
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(windowDidBecomeKey:)
+                                                 name:NSWindowDidBecomeKeyNotification
+                                               object:nil];
+}
+
+- (void)applyGlassmorphismToWindow:(NSWindow *)window {
+    if (!window) return;
+    
+    window.titlebarAppearsTransparent = YES;
+    window.titleVisibility = NSWindowTitleHidden;
+    window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    
+    window.backgroundColor = [NSColor colorWithRed:0.02 green:0.05 blue:0.12 alpha:0.85];
+    
+    if (@available(macOS 10.14, *)) {
+        window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    }
+    
+    window.contentView.wantsLayer = YES;
+    window.contentView.layer.cornerRadius = 12.0;
+    window.contentView.layer.masksToBounds = NO;
+    
+    window.contentView.layer.borderWidth = 1.0;
+    window.contentView.layer.borderColor = [NSColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.3].CGColor;
+    
+    window.contentView.layer.shadowColor = [NSColor colorWithRed:0.2 green:0.5 blue:0.9 alpha:0.6].CGColor;
+    window.contentView.layer.shadowOpacity = 0.5;
+    window.contentView.layer.shadowRadius = 25.0;
+    window.contentView.layer.shadowOffset = CGSizeMake(0, -10);
+    
+    [self animateWindowGlow:window];
+    
+    NSLog(@"⚪️ Glassmorphism applied to window: %@", window.title);
+}
+
+- (void)animateWindowGlow:(NSWindow *)window {
+    CABasicAnimation *glowAnimation = [CABasicAnimation animationWithKeyPath:@"shadowOpacity"];
+    glowAnimation.fromValue = @(0.3);
+    glowAnimation.toValue = @(0.8);
+    glowAnimation.duration = 3.0;
+    glowAnimation.autoreverses = YES;
+    glowAnimation.repeatCount = HUGE_VALF;
+    glowAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    
+    [window.contentView.layer addAnimation:glowAnimation forKey:@"shadowGlow"];
+    
+    CABasicAnimation *borderAnimation = [CABasicAnimation animationWithKeyPath:@"borderColor"];
+    borderAnimation.fromValue = (id)[NSColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.2].CGColor;
+    borderAnimation.toValue = (id)[NSColor colorWithRed:0.5 green:0.8 blue:1.0 alpha:0.6].CGColor;
+    borderAnimation.duration = 4.0;
+    borderAnimation.autoreverses = YES;
+    borderAnimation.repeatCount = HUGE_VALF;
+    borderAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    
+    [window.contentView.layer addAnimation:borderAnimation forKey:@"borderGlow"];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+    NSWindow *window = notification.object;
+    [self applyGlassmorphismToWindow:window];
+}
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification {
-    // Insert code here to tear down your application
+    [self save];
+    NSLog(@"⚪️ Glassmorphism application terminating");
 }
-
 
 - (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app {
-    return YES;
+    return NO;
 }
 
+- (void)application:(NSApplication *)application didFailToRestoreWindowWithIdentifier:(NSString *)identifier state:(NSCoder *)state error:(NSError *)error {
+}
+
+- (BOOL)application:(NSApplication *)application restoreWindowWithIdentifier:(NSString *)identifier state:(NSCoder *)state {
+    return NO;
+}
 
 #pragma mark - Core Data stack
 
 @synthesize persistentContainer = _persistentContainer;
 
 - (NSPersistentContainer *)persistentContainer {
-    // The persistent container for the application. This implementation creates and returns a container, having loaded the store for the application to it.
     @synchronized (self) {
         if (_persistentContainer == nil) {
             _persistentContainer = [[NSPersistentContainer alloc] initWithName:@"SKRender"];
             [_persistentContainer loadPersistentStoresWithCompletionHandler:^(NSPersistentStoreDescription *storeDescription, NSError *error) {
                 if (error != nil) {
-                    // Replace this implementation with code to handle the error appropriately.
-                    // abort() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                    
-                    /*
-                     Typical reasons for an error here include:
-                     * The parent directory does not exist, cannot be created, or disallows writing.
-                     * The persistent store is not accessible, due to permissions or data protection when the device is locked.
-                     * The device is out of space.
-                     * The store could not be migrated to the current model version.
-                     Check the error message to determine what the actual problem was.
-                    */
-                    NSLog(@"Unresolved error %@, %@", error, error.userInfo);
                     abort();
                 }
             }];
         }
     }
-    
     return _persistentContainer;
 }
 
 #pragma mark - Core Data Saving and Undo support
 
 - (void)save {
-    // Performs the save action for the application, which is to send the save: message to the application's managed object context. Any encountered errors are presented to the user.
     NSManagedObjectContext *context = self.persistentContainer.viewContext;
 
     if (![context commitEditing]) {
-        NSLog(@"%@:%@ unable to commit editing before saving", [self class], NSStringFromSelector(_cmd));
+        return;
     }
-    
+
     NSError *error = nil;
     if (context.hasChanges && ![context save:&error]) {
-        // Customize this code block to include application-specific recovery steps.              
         [[NSApplication sharedApplication] presentError:error];
     }
 }
 
 - (NSUndoManager *)windowWillReturnUndoManager:(NSWindow *)window {
-    // Returns the NSUndoManager for the application. In this case, the manager returned is that of the managed object context for the application.
     return self.persistentContainer.viewContext.undoManager;
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
-    // Save changes in the application's managed object context before the application terminates.
     NSManagedObjectContext *context = self.persistentContainer.viewContext;
 
     if (![context commitEditing]) {
-        NSLog(@"%@:%@ unable to commit editing to terminate", [self class], NSStringFromSelector(_cmd));
         return NSTerminateCancel;
     }
-    
+
     if (!context.hasChanges) {
         return NSTerminateNow;
     }
-    
+
     NSError *error = nil;
     if (![context save:&error]) {
-
-        // Customize this code block to include application-specific recovery steps.
         BOOL result = [sender presentError:error];
         if (result) {
             return NSTerminateCancel;
@@ -118,7 +174,7 @@
         [alert addButtonWithTitle:cancelButton];
 
         NSInteger answer = [alert runModal];
-        
+
         if (answer == NSAlertSecondButtonReturn) {
             return NSTerminateCancel;
         }
