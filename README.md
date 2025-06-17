@@ -194,10 +194,3 @@ Plugin system pour extensions
 Remote control via OSC/MIDI
 Live streaming intégration
 VR/AR préparation
-
-
-# Ma Recommandation Top 3
-1. Post-Processing Pipeline - Impact visuel énorme, relativement simple à implémenter
-2. Océan Cristallin Scene - Parfait showcase des capacités glassmorphism
-3. Contrôles Temps Réel - Transforme l'app en outil créatif interactif
-Laquelle t'inspire le plus ? On peut commencer par celle qui te passionne
